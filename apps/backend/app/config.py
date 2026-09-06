@@ -299,6 +299,28 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
 
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> list[str]:
+        """Parse CORS origins from JSON string, comma-separated string, or list."""
+        if not v:
+            return ["http://localhost:3000", "http://127.0.0.1:3000"]
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return ["http://localhost:3000", "http://127.0.0.1:3000"]
+            if v_str.startswith("[") and v_str.endswith("]"):
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(item).strip().rstrip("/") for item in parsed if item and str(item).strip() != "*"]
+                except json.JSONDecodeError:
+                    pass
+            return [origin.strip().rstrip("/") for origin in v_str.split(",") if origin.strip() and origin.strip() != "*"]
+        if isinstance(v, list):
+            return [str(item).strip().rstrip("/") for item in v if item and str(item).strip() != "*"]
+        return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
     @property
     def effective_cors_origins(self) -> list[str]:
         """CORS origins including frontend_base_url for production deployments."""
@@ -307,6 +329,7 @@ class Settings(BaseSettings):
         if url and url not in origins:
             origins.append(url)
         return origins
+
 
     # Paths
     data_dir: Path = Path(__file__).parent.parent / "data"
