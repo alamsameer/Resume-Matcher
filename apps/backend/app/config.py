@@ -245,6 +245,8 @@ class Settings(BaseSettings):
     reload: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     frontend_base_url: str = "http://localhost:3000"
+    database_url: Optional[str] = None
+
 
     # Hard timeout (seconds) for a single resume tailoring/improve request — the
     # backend wraps the improve flow in asyncio.wait_for(timeout=this). It MUST be
@@ -254,7 +256,7 @@ class Settings(BaseSettings):
     # (this is why issue #776's backend-only workaround didn't work). Local LLMs
     # (Ollama, llama.cpp, …) often need longer than the 240s default; bounded to
     # [30, 1800]s so a stuck request can't hold a worker indefinitely.
-    request_timeout_seconds: int = 240
+    request_timeout_seconds: int = 20040
 
     @field_validator("request_timeout_seconds", mode="before")
     @classmethod

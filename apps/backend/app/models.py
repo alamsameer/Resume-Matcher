@@ -52,16 +52,15 @@ class Resume(Base):
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
     __table_args__ = (
-        # At most one master resume. Partial unique index enforces the invariant
-        # at the storage layer; ``_master_resume_lock`` remains the primary
-        # (race-free) mechanism in the facade.
         Index(
             "ux_resumes_single_master",
             "is_master",
             unique=True,
             sqlite_where=text("is_master = 1"),
+            postgresql_where=text("is_master = true"),
         ),
     )
+
 
 
 class Job(Base):

@@ -73,9 +73,10 @@ class Database:
     # storage-level backstop).
     _master_resume_lock = asyncio.Lock()
 
-    def __init__(self, db_path: Path | None = None):
-        self.db_path = db_path or settings.sqlite_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: Path | str | None = None):
+        self.db_target = db_path or settings.database_url or settings.sqlite_path
+        if isinstance(self.db_target, Path):
+            self.db_target.parent.mkdir(parents=True, exist_ok=True)
         self._async_engine = None
         self._async_session_factory: async_sessionmaker[AsyncSession] | None = None
         self._sync_engine = None
@@ -89,18 +90,19 @@ class Database:
 
         Tables are created via the **sync** engine so both the sync (api_keys)
         and async (docs) paths see them immediately, without needing an event
-        loop. Both engines point at the same file.
+        loop.
         """
         if self._initialized:
             return
-        self._sync_engine = make_sync_engine(self.db_path)
+        self._sync_engine = make_sync_engine(self.db_target)
         self._sync_session_factory = sessionmaker(self._sync_engine, expire_on_commit=False)
         init_models_sync(self._sync_engine)
-        self._async_engine = make_async_engine(self.db_path)
+        self._async_engine = make_async_engine(self.db_target)
         self._async_session_factory = async_sessionmaker(
             self._async_engine, expire_on_commit=False
         )
         self._initialized = True
+
 
     @property
     def _session(self) -> async_sessionmaker[AsyncSession]:
