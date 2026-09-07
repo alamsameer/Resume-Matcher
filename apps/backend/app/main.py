@@ -30,6 +30,7 @@ from app.routers import (
     resume_wizard_router,
     resumes_router,
 )
+from app.routers.print_pages import router as print_pages_router
 from app.routers.resumes import drain_processing_cleanup_tasks
 
 
@@ -113,6 +114,8 @@ app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")
 app.include_router(applications_router, prefix="/api/v1")
 app.include_router(resume_wizard_router, prefix="/api/v1")
+# Playwright PDF target when FRONTEND_BASE_URL points at this service
+app.include_router(print_pages_router, prefix="/print")
 
 
 @app.get("/")
