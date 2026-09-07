@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: resume-matcher-backend
+    runtime: python
+    rootDir: apps/backend
+    buildCommand: pip install . asyncpg psycopg2-binary && playwright install chromium
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.0
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/src/.playwright

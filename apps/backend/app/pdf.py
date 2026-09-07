@@ -298,7 +298,28 @@ def _resolve_pdf_margins(margins: Optional[dict]) -> dict:
 
 
 def _find_chromium_executable() -> Optional[str]:
-    """Find system Chrome/Chromium/Edge executable across platforms."""
+    """Find system Chrome/Chromium/Edge or Playwright cached executable across platforms."""
+    # Check Playwright cache directories first (Render project path must persist build→runtime)
+    cache_dirs = [
+        Path.home() / ".cache" / "ms-playwright",
+        Path("/opt/render/project/src/.playwright"),
+        Path("/opt/render/.cache/ms-playwright"),
+        Path("/root/.cache/ms-playwright"),
+        Path("/tmp/ms-playwright"),
+    ]
+    if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+        cache_dirs.insert(0, Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"]))
+
+    for c_dir in cache_dirs:
+        if c_dir.exists():
+            for match in (
+                list(c_dir.rglob("chrome"))
+                + list(c_dir.rglob("chrome-headless-shell"))
+                + list(c_dir.rglob("chromium"))
+            ):
+                if match.is_file() and os.access(match, os.X_OK):
+                    return str(match)
+
     if sys.platform == "win32":
         candidates = [
             Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
@@ -339,18 +360,58 @@ def _find_chromium_executable() -> Optional[str]:
 
 
 async def _launch_browser(playwright: Playwright) -> Browser:
+    launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+
+    # 1. Try launching default playwright chromium
     try:
-        return await playwright.chromium.launch()
-    except PlaywrightError as e:
-        if "Executable doesn't exist" not in str(e):
-            raise
-        fallback_executable = _find_chromium_executable()
-        if not fallback_executable:
-            raise PDFRenderError(
-                "Playwright browser executable is missing, and no system Chrome/Edge "
-                "installation was found. Install Playwright browsers or install Chrome/Edge."
-            ) from e
-        return await playwright.chromium.launch(executable_path=fallback_executable)
+        return await playwright.chromium.launch(args=launch_args)
+    except Exception as e:
+        logger.warning("Default playwright.chromium.launch failed: %s", e)
+
+    # 2. Search for Playwright cache or system installed browser executable
+    fallback_executable = _find_chromium_executable()
+    if fallback_executable:
+        try:
+            logger.info("Launching browser with fallback executable: %s", fallback_executable)
+            return await playwright.chromium.launch(
+                executable_path=fallback_executable,
+                args=launch_args,
+            )
+        except Exception as e:
+            logger.warning("Launch with fallback executable %s failed: %s", fallback_executable, e)
+
+    # 3. Automatic on-demand installation if browser is missing
+    logger.info("Attempting auto-installation of Playwright chromium...")
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        logger.info("Playwright install stdout: %s", proc.stdout)
+        if proc.stderr:
+            logger.warning("Playwright install stderr: %s", proc.stderr)
+
+        # Retry launch after installation
+        try:
+            return await playwright.chromium.launch(args=launch_args)
+        except Exception:
+            retry_executable = _find_chromium_executable()
+            if retry_executable:
+                return await playwright.chromium.launch(
+                    executable_path=retry_executable,
+                    args=launch_args,
+                )
+    except Exception as install_err:
+        logger.error("Auto-installation of Playwright chromium failed: %s", install_err)
+
+    raise PDFRenderError(
+        "Playwright browser executable is missing, and no system Chrome/Edge "
+        "installation was found. Install Playwright browsers or install Chrome/Edge."
+    )
 
 
 async def _render_page_to_pdf(
