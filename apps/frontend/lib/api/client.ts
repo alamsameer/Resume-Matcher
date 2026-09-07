@@ -8,7 +8,9 @@ const DEFAULT_PUBLIC_API_URL = '/';
 const INTERNAL_API_ORIGIN = (
   process.env.BACKEND_ORIGIN ||
   process.env.INTERNAL_API_ORIGIN ||
-  'http://127.0.0.1:8000'
+  (process.env.VERCEL
+    ? 'https://resume-matcher-backend-n92b.onrender.com'
+    : 'http://127.0.0.1:8000')
 ).replace(/\/+$/, '');
 
 function normalizeApiUrl(value: string): string {
