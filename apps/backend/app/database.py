@@ -148,17 +148,29 @@ class Database:
         assert self._async_session_factory is not None
         return self._async_session_factory
 
+    def _begin_write_sql(self) -> str:
+        """Dialect-aware writer reservation.
+
+        SQLite needs ``BEGIN IMMEDIATE`` to take the reserved lock up front.
+        PostgreSQL rejects that syntax; a normal ``BEGIN`` is enough.
+        """
+        self._ensure_initialized()
+        assert self._async_engine is not None
+        if self._async_engine.dialect.name == "sqlite":
+            return "BEGIN IMMEDIATE"
+        return "BEGIN"
+
     @asynccontextmanager
     async def _write_session(self) -> AsyncIterator[AsyncSession]:
-        """Reserve SQLite's writer before reading state that a write depends on.
+        """Reserve a writer before reading state that a write depends on.
 
-        The database reservation serializes across connections and processes,
+        On SQLite the reservation serializes across connections and processes,
         unlike an in-memory lock. Callers commit the complete operation; closing
         the session rolls back every change if any stage raises.
         """
         with _translate_write_errors():
             async with self._session() as session:
-                await session.execute(text("BEGIN IMMEDIATE"))
+                await session.execute(text(self._begin_write_sql()))
                 yield session
 
     @property
@@ -172,7 +184,7 @@ class Database:
         """Reserve a synchronous key-store writer with the same busy contract."""
         with _translate_write_errors():
             with self._sync() as session:
-                session.execute(text("BEGIN IMMEDIATE"))
+                session.execute(text(self._begin_write_sql()))
                 yield session
 
     async def close(self) -> None:
