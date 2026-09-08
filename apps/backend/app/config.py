@@ -7,7 +7,7 @@ import stat
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -315,6 +315,8 @@ class Settings(BaseSettings):
     reload: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     frontend_base_url: str = "http://localhost:3000"
+    # When set (e.g. Supabase), document + api_keys tables use Postgres instead of local SQLite.
+    database_url: Optional[str] = None
 
     # Total timeout for AI operations, including validation, database preloads,
     # model attempts and persistence. Nested stages share one deadline. It MUST be

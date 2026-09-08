@@ -11,3 +11,9 @@ services:
         value: 3.13.0
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /opt/render/project/src/.playwright
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

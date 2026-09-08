@@ -100,8 +100,20 @@ class Database:
     """Async SQLAlchemy facade for resume matcher data."""
 
     def __init__(self, db_path: Path | None = None):
-        self.db_path = db_path or settings.sqlite_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Explicit path always wins (tests). Otherwise prefer DATABASE_URL
+        # (Supabase/Postgres) and fall back to the local SQLite file.
+        if db_path is not None:
+            self.db_path = db_path
+            self.db_target: Path | str = db_path
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        elif settings.database_url:
+            self.db_target = settings.database_url
+            # Kept for SQLite-oriented callers/tests; unused when db_target is Postgres.
+            self.db_path = settings.sqlite_path
+        else:
+            self.db_path = settings.sqlite_path
+            self.db_target = self.db_path
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._async_engine = None
         self._async_session_factory: async_sessionmaker[AsyncSession] | None = None
         self._sync_engine = None
@@ -115,16 +127,16 @@ class Database:
 
         Tables are created via the **sync** engine so both the sync (api_keys)
         and async (docs) paths see them immediately, without needing an event
-        loop. Both engines point at the same file.
+        loop.
         """
         if self._initialized:
             return
-        self._sync_engine = make_sync_engine(self.db_path)
+        self._sync_engine = make_sync_engine(self.db_target)
         self._sync_session_factory = sessionmaker(
             self._sync_engine, expire_on_commit=False
         )
         init_models_sync(self._sync_engine)
-        self._async_engine = make_async_engine(self.db_path)
+        self._async_engine = make_async_engine(self.db_target)
         self._async_session_factory = async_sessionmaker(
             self._async_engine, expire_on_commit=False
         )
