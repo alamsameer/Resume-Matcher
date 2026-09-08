@@ -3,9 +3,11 @@
 import asyncio
 import logging
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 # Fix for Windows: Use ProactorEventLoop for subprocess support (Playwright)
 if sys.platform == "win32":
@@ -15,8 +17,9 @@ logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.ai_budget import operation_error_content
 from app.config import settings
-from app.database import db
+from app.database import DatabaseBusyError, db
 from app.pdf import close_pdf_renderer, init_pdf_renderer
 from app.routers import (
     applications_router,
@@ -27,6 +30,8 @@ from app.routers import (
     resume_wizard_router,
     resumes_router,
 )
+from app.routers.print_pages import router as print_pages_router
+from app.routers.resumes import drain_processing_cleanup_tasks
 
 
 def _configure_application_logging() -> None:
@@ -39,7 +44,7 @@ _configure_application_logging()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     # Startup
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -60,6 +65,11 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown - wrap each cleanup in try-except to ensure all resources are released
     try:
+        await drain_processing_cleanup_tasks()
+    except Exception:
+        logger.exception("Error draining processing cleanup")
+
+    try:
         await close_pdf_renderer()
     except Exception as e:
         logger.error(f"Error closing PDF renderer: {e}")
@@ -77,11 +87,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware - origins configurable via CORS_ORIGINS env var or regex
+@app.exception_handler(DatabaseBusyError)
+async def database_busy_handler(request: Request, error: DatabaseBusyError) -> JSONResponse:
+    logger.warning("Database write contention for %s", request.url.path, exc_info=error)
+    return JSONResponse(
+        status_code=503,
+        content=operation_error_content(request, "Database is busy. Please retry shortly."),
+        headers={"Retry-After": "1"},
+    )
+
+
+# CORS middleware - origins configurable via CORS_ORIGINS env var
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.effective_cors_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,6 +114,8 @@ app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")
 app.include_router(applications_router, prefix="/api/v1")
 app.include_router(resume_wizard_router, prefix="/api/v1")
+# Playwright PDF target when FRONTEND_BASE_URL points at this service
+app.include_router(print_pages_router, prefix="/print")
 
 
 @app.get("/")
