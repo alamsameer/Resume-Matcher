@@ -84,8 +84,15 @@ def _normalize_postgres_url(db_target: str, *, driver: str) -> str:
 def make_async_engine(db_target: str | Path) -> AsyncEngine:
     """Create the async engine (aiosqlite for SQLite or asyncpg for PostgreSQL)."""
     if _is_postgres_target(db_target):
+        import ssl
+
         url = _normalize_postgres_url(str(db_target), driver="asyncpg")
-        connect_args: dict[str, Any] = {"ssl": True}
+        # Encrypted TLS to Supabase; disable hostname/CA strictness because some
+        # Render/runtime CA bundles fail on the pooler chain (CERT_VERIFY_FAILED).
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        connect_args: dict[str, Any] = {"ssl": ssl_context}
         # Supabase transaction pooler is incompatible with prepared-statement cache.
         if "pooler.supabase.com" in url:
             connect_args["statement_cache_size"] = 0
