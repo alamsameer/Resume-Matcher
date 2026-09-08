@@ -65,9 +65,19 @@ def _normalize_postgres_url(db_target: str, *, driver: str) -> str:
     prefix = f"postgresql+{driver}://"
     if not url.startswith("postgresql+"):
         url = url.replace("postgresql://", prefix, 1)
-    # Managed Postgres (Supabase) requires TLS.
-    if "supabase.com" in url or "sslmode" not in url.lower():
+    # psycopg2 understands sslmode=; asyncpg rejects it as a connect kwarg.
+    if driver == "psycopg2" and (
+        "supabase.com" in url or "sslmode" not in url.lower()
+    ):
         url = _ensure_query_param(url, "sslmode", "require")
+    if driver == "asyncpg":
+        parsed = urlparse(url)
+        query = [
+            (k, v)
+            for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if k.lower() != "sslmode"
+        ]
+        url = urlunparse(parsed._replace(query=urlencode(query)))
     return url
 
 
@@ -75,7 +85,7 @@ def make_async_engine(db_target: str | Path) -> AsyncEngine:
     """Create the async engine (aiosqlite for SQLite or asyncpg for PostgreSQL)."""
     if _is_postgres_target(db_target):
         url = _normalize_postgres_url(str(db_target), driver="asyncpg")
-        connect_args: dict[str, Any] = {}
+        connect_args: dict[str, Any] = {"ssl": True}
         # Supabase transaction pooler is incompatible with prepared-statement cache.
         if "pooler.supabase.com" in url:
             connect_args["statement_cache_size"] = 0
